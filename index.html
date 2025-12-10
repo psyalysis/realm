@@ -10,6 +10,10 @@
     <div id="viewport" tabindex="0">
         <div id="gameNotRunningMessage">Game not running</div>
         <div id="damageOverlay"></div>
+        <div id="deathOverlay">
+            <div id="deathMessage">YOU DIED</div>
+            <div id="respawnCountdown"></div>
+        </div>
         <div id="dashCooldownBar">
             <div id="dashCooldownFill"></div>
         </div>
@@ -33,7 +37,7 @@
         </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="script.js"></script>
+    <script type="module" src="script.js"></script>
 </body>
 </html>
 

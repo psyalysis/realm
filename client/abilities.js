@@ -200,11 +200,19 @@ export function checkManaCastComplete(previousHealthRef) {
 
 // Dash handling
 let lastClientDashTime = 0;
-const CLIENT_DASH_RATE_LIMIT = 300;
+const CLIENT_DASH_RATE_LIMIT = 200; // Reduced from 300ms for better responsiveness
 const DASH_DISTANCE = 4; // Number of cells to dash
 
 export function handleDash() {
     const currentTime = getCurrentTime();
+    
+    // Early rate limiting check (before other validations to fail fast)
+    if (isConnected && socket) {
+        const now = performance.now();
+        if (now - lastClientDashTime < CLIENT_DASH_RATE_LIMIT) {
+            return;
+        }
+    }
     
     if (gameState.dashCooldownEndTime > currentTime) {
         return;
@@ -215,7 +223,7 @@ export function handleDash() {
         return;
     }
     
-    // Determine dash direction from currently held WASD keys only
+    // Determine dash direction from currently held WASD keys
     let dashDirection = null;
     
     // Check currently pressed movement keys (must be held)
@@ -227,7 +235,26 @@ export function handleDash() {
         }
     }
     
-    // If no WASD key is held, don't dash and don't consume cooldown
+    // Fallback: use last movement direction if no keys are held
+    if (!dashDirection && gameState.lastMovementDirection) {
+        // Convert lastMovementDirection format ('UP', 'DOWN', etc.) to action format
+        switch(gameState.lastMovementDirection) {
+            case 'UP':
+                dashDirection = 'MOVE_UP';
+                break;
+            case 'DOWN':
+                dashDirection = 'MOVE_DOWN';
+                break;
+            case 'LEFT':
+                dashDirection = 'MOVE_LEFT';
+                break;
+            case 'RIGHT':
+                dashDirection = 'MOVE_RIGHT';
+                break;
+        }
+    }
+    
+    // If still no direction, don't dash and don't consume cooldown
     if (!dashDirection) {
         return;
     }
@@ -286,8 +313,8 @@ function executeDash(direction) {
     }
     
     if (isConnected && socket) {
+        // Rate limiting already checked in handleDash(), but update timestamp here
         const now = performance.now();
-        if (now - lastClientDashTime < CLIENT_DASH_RATE_LIMIT) return;
         lastClientDashTime = now;
         
         if (isWall(gameState.player.x, gameState.player.y)) {

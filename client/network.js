@@ -288,9 +288,21 @@ export function initNetwork(callbacks) {
     
     socket.on('dashConfirmed', (data) => {
         if (data.dashEndTime > 0) {
-            gameState.dashEndTime = serverTimeToClient(data.dashEndTime);
+            const serverDashEndTime = serverTimeToClient(data.dashEndTime);
+            const currentTime = getCurrentTime();
+            
+            // Use server's dash end time (authoritative)
+            gameState.dashEndTime = serverDashEndTime;
             gameState.dashDirection = data.dashDirection || null;
             gameState.isDashing = true;
+            
+            // If server's duration is shorter than our queue expects, trim the queue
+            // Each cell takes ~0.15s, so calculate how many cells we can complete
+            const serverDuration = serverDashEndTime - currentTime;
+            const maxCells = Math.floor(serverDuration / 0.15);
+            if (gameState.dashQueue && gameState.dashQueue.length > maxCells) {
+                gameState.dashQueue = gameState.dashQueue.slice(0, maxCells);
+            }
         }
         gameState.dashCooldownEndTime = serverTimeToClient(data.dashCooldownEndTime);
         // Play dash sound when player dashes

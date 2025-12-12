@@ -303,8 +303,10 @@ function executeDash(direction) {
         
         // Optimistically activate dash
         const optimisticTime = getCurrentTime();
-        // Dash duration based on number of cells (faster: 0.15s per cell)
-        gameState.dashEndTime = optimisticTime + (dashQueue.length * 0.15);
+        // Dash duration based on number of cells (0.15s per cell, max 0.6s for 4 cells)
+        // This should match server's DASH_DURATION for full dash, but can be shorter if hitting walls
+        const calculatedDuration = dashQueue.length * 0.15;
+        gameState.dashEndTime = optimisticTime + calculatedDuration;
         gameState.dashCooldownEndTime = optimisticTime + DASH_COOLDOWN;
         gameState.isDashing = true;
         return;
@@ -314,7 +316,8 @@ function executeDash(direction) {
     const currentTime = getCurrentTime();
     gameState.dashQueue = dashQueue;
     gameState.dashDirection = direction;
-    gameState.dashEndTime = currentTime + (dashQueue.length * 0.15);
+    const calculatedDuration = dashQueue.length * 0.15;
+    gameState.dashEndTime = currentTime + calculatedDuration;
     gameState.dashCooldownEndTime = currentTime + DASH_COOLDOWN;
     gameState.isDashing = true;
     // Play dash sound in single-player mode

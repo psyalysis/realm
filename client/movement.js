@@ -85,8 +85,8 @@ export function executeMovement(action) {
         // Check if player is dashing (has active dash speed boost)
         const isDashing = gameState.dashEndTime && gameState.dashEndTime > currentTime;
         
-        // During dash, allow much faster movement (reduce rate limit by 8x for quicker dash)
-        const effectiveRateLimit = isDashing ? CLIENT_MOVE_RATE_LIMIT / 8 : CLIENT_MOVE_RATE_LIMIT;
+        // During dash, allow faster movement (reduce rate limit by 4x to match server)
+        const effectiveRateLimit = isDashing ? CLIENT_MOVE_RATE_LIMIT / 4 : CLIENT_MOVE_RATE_LIMIT;
         
         if (now - clientMoveCountResetTime >= 1000) {
             clientMoveCount = 0;

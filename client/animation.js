@@ -94,7 +94,9 @@ function updateAnimations() {
         
         if (!gameState.isCastingMana) {
             // Process dash queue first (dash movements take priority)
-            if (gameState.dashQueue.length > 0 && executeMovement) {
+            // Only process if dash hasn't expired
+            const isDashActive = gameState.dashEndTime && gameState.dashEndTime > currentTimeSeconds;
+            if (gameState.dashQueue.length > 0 && isDashActive && executeMovement) {
                 const dashAction = gameState.dashQueue[0]; // Peek at first item
                 // Execute dash movement immediately (it will be removed from queue after completion)
                 executeMovement(dashAction);

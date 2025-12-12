@@ -6,7 +6,7 @@
 const WORLD_WIDTH = 50;
 const WORLD_HEIGHT = 50;
 const BASE_ANIMATION_SPEED = 2.5;
-const DASH_DURATION = 0.3; // Duration of dash speed boost in seconds
+const DASH_DURATION = 0.6; // Duration of dash speed boost in seconds (matches 4 cells * 0.15s per cell)
 const DASH_COOLDOWN = 2.0;
 const MANA_COOLDOWN = 7.0;
 const HIT_COOLDOWN = 0.4; // Cooldown between hits (seconds)

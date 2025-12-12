@@ -7,6 +7,7 @@ import { WORLD_WIDTH, WORLD_HEIGHT, CLIENT_MOVE_RATE_LIMIT } from './config.js';
 import { isWall } from './map.js';
 import { centerCameraOnRedSquare } from './camera.js';
 import { emitMove, getNetworkState } from './network.js';
+import { getCurrentTime } from './utils.js';
 
 // Client-side input rate limiting
 let lastClientMoveTime = 0;
@@ -27,8 +28,11 @@ export function executeMovement(action) {
         return;
     }
     
+    // Check if this is a dash movement
+    const isDashMovement = gameState.dashQueue.length > 0 && gameState.dashQueue[0] === action;
+    
     // Check if dashing and block movement in other directions
-    const currentTime = performance.now() / 1000;
+    const currentTime = getCurrentTime();
     const isDashing = gameState.dashEndTime && gameState.dashEndTime > currentTime;
     if (isDashing && gameState.dashDirection && action !== gameState.dashDirection) {
         // Block movement in directions other than dash direction
@@ -58,7 +62,15 @@ export function executeMovement(action) {
     if (newX < 0 || newX >= WORLD_WIDTH || 
         newY < 0 || newY >= WORLD_HEIGHT || 
         isWall(newX, newY)) {
-        // Wall or out of bounds - don't allow movement, try next in queue
+        // Wall or out of bounds - don't allow movement
+        // If this was a dash movement hitting a wall, clear the dash queue
+        if (isDashMovement) {
+            gameState.dashQueue = [];
+            gameState.isDashing = false;
+            gameState.dashEndTime = 0;
+            gameState.dashDirection = null;
+        }
+        // Try next in queue
         processNextMovement();
         return;
     }
@@ -68,13 +80,13 @@ export function executeMovement(action) {
     if (networkState.isConnected && networkState.socket) {
         // Client-side rate limiting to prevent spam
         const now = performance.now();
-        const currentTime = now / 1000;
+        const currentTime = getCurrentTime();
         
         // Check if player is dashing (has active dash speed boost)
         const isDashing = gameState.dashEndTime && gameState.dashEndTime > currentTime;
         
-        // During dash, allow 4x faster movement (reduce rate limit by 4x)
-        const effectiveRateLimit = isDashing ? CLIENT_MOVE_RATE_LIMIT / 4 : CLIENT_MOVE_RATE_LIMIT;
+        // During dash, allow much faster movement (reduce rate limit by 8x for quicker dash)
+        const effectiveRateLimit = isDashing ? CLIENT_MOVE_RATE_LIMIT / 8 : CLIENT_MOVE_RATE_LIMIT;
         
         if (now - clientMoveCountResetTime >= 1000) {
             clientMoveCount = 0;
@@ -106,6 +118,12 @@ export function executeMovement(action) {
         gameState.player.y = newY;
         gameState.playerTarget.x = newX;
         gameState.playerTarget.y = newY;
+        
+        // If this was a dash movement, remove it from dash queue after successful movement
+        if (isDashMovement) {
+            gameState.dashQueue.shift();
+        }
+        
         // Don't reset camera here - wait for server confirmation
         // If collision happens, collision event will handle camera effect
         return;
@@ -117,6 +135,11 @@ export function executeMovement(action) {
     gameState.player.y = newY;
     gameState.playerTarget.x = newX;
     gameState.playerTarget.y = newY;
+    
+    // If this was a dash movement, remove it from dash queue after successful movement
+    if (isDashMovement) {
+        gameState.dashQueue.shift();
+    }
     
     // Update camera target to follow player
     centerCameraOnRedSquare();

@@ -10,7 +10,8 @@ import { updateHealthBar, updateManaBar, updateGameRunningStatus, updateNetworkS
 import { addOtherPlayer, removeOtherPlayer, updateOtherPlayer, updateOtherPlayerPosition, triggerOtherPlayerDamageEffect, otherPlayers } from './player.js';
 import { triggerHitCameraEffect, getCameraInterpolated } from './camera.js';
 import { triggerHitFeedback, forceUpdateHealthDots } from './renderer.js';
-import { gridToWorldPixels, worldToViewport } from './utils.js';
+import { gridToWorldPixels, worldToViewport, serverTimeToClient, getCurrentTime } from './utils.js';
+import { playDamageSound, playKillSound } from './sounds.js';
 
 // Network state
 let socket = null;
@@ -61,14 +62,12 @@ function hideDeathUI() {
 function updateRespawnCountdown() {
     if (!respawnCountdown || !gameState.isDead) return;
     
-    const now = performance.now() / 1000;
+    const now = getCurrentTime();
     const timeRemaining = Math.max(0, gameState.respawnTime - now);
     
-    if (timeRemaining <= 0) {
-        respawnCountdown.textContent = 'Respawning...';
-    } else {
-        respawnCountdown.textContent = `Respawning in ${Math.ceil(timeRemaining)}s`;
-    }
+    respawnCountdown.textContent = timeRemaining <= 0 
+        ? 'Respawning...' 
+        : `Respawning in ${Math.ceil(timeRemaining)}s`;
 }
 
 // Death burst effect
@@ -169,19 +168,10 @@ export function initNetwork(callbacks) {
             redSquare.style.backgroundColor = data.player.color;
         }
         
-        const now = performance.now() / 1000;
-        if (data.player.dashCooldownEndTime > 0) {
-            const serverNow = Date.now() / 1000;
-            const timeUntilDash = data.player.dashCooldownEndTime - serverNow;
-            gameState.dashCooldownEndTime = now + Math.max(0, timeUntilDash);
-        } else {
-            gameState.dashCooldownEndTime = 0;
-        }
+        gameState.dashCooldownEndTime = serverTimeToClient(data.player.dashCooldownEndTime);
         
         if (data.player.dashEndTime > 0) {
-            const serverNow = Date.now() / 1000;
-            const timeUntilDashEnd = data.player.dashEndTime - serverNow;
-            gameState.dashEndTime = now + Math.max(0, timeUntilDashEnd);
+            gameState.dashEndTime = serverTimeToClient(data.player.dashEndTime);
             gameState.dashDirection = data.player.dashDirection || null;
             gameState.isDashing = true;
         } else {
@@ -190,23 +180,10 @@ export function initNetwork(callbacks) {
             gameState.isDashing = false;
         }
         
-        if (data.player.manaCooldownEndTime > 0) {
-            const serverNow = Date.now() / 1000;
-            const timeUntilMana = data.player.manaCooldownEndTime - serverNow;
-            gameState.manaCooldownEndTime = now + Math.max(0, timeUntilMana);
-        } else {
-            gameState.manaCooldownEndTime = 0;
-        }
+        gameState.manaCooldownEndTime = serverTimeToClient(data.player.manaCooldownEndTime);
         gameState.isCastingMana = data.player.isCastingMana;
         gameState.isDead = data.player.isDead || false;
-        
-        if (data.player.manaCastEndTime > 0) {
-            const serverNow = Date.now() / 1000;
-            const timeUntilCastComplete = data.player.manaCastEndTime - serverNow;
-            gameState.manaCastEndTime = now + Math.max(0, timeUntilCastComplete);
-        } else {
-            gameState.manaCastEndTime = 0;
-        }
+        gameState.manaCastEndTime = serverTimeToClient(data.player.manaCastEndTime);
         
         if (gameState.isDead) {
             showDeathUI();
@@ -299,77 +276,39 @@ export function initNetwork(callbacks) {
     });
     
     socket.on('dashConfirmed', (data) => {
-        const now = performance.now() / 1000;
-        const serverNow = Date.now() / 1000;
-        
         if (data.dashEndTime > 0) {
-            const timeUntilDashEnd = data.dashEndTime - serverNow;
-            gameState.dashEndTime = now + Math.max(0, timeUntilDashEnd);
+            gameState.dashEndTime = serverTimeToClient(data.dashEndTime);
             gameState.dashDirection = data.dashDirection || null;
             gameState.isDashing = true;
         }
-        
-        if (data.dashCooldownEndTime > 0) {
-            const timeUntilDash = data.dashCooldownEndTime - serverNow;
-            gameState.dashCooldownEndTime = now + Math.max(0, timeUntilDash);
-        } else {
-            gameState.dashCooldownEndTime = 0;
-        }
+        gameState.dashCooldownEndTime = serverTimeToClient(data.dashCooldownEndTime);
     });
     
     socket.on('playerDashed', (data) => {
         const otherPlayer = otherPlayers.get(data.id);
         if (otherPlayer) {
-            const now = performance.now() / 1000;
-            const serverNow = Date.now() / 1000;
-            
             if (data.dashEndTime > 0) {
-                const timeUntilDashEnd = data.dashEndTime - serverNow;
-                otherPlayer.dashEndTime = now + Math.max(0, timeUntilDashEnd);
+                otherPlayer.dashEndTime = serverTimeToClient(data.dashEndTime);
                 otherPlayer.dashDirection = data.dashDirection || null;
                 otherPlayer.isDashing = true;
             }
-            
             if (data.dashCooldownEndTime > 0) {
-                const timeUntilDash = data.dashCooldownEndTime - serverNow;
-                otherPlayer.dashCooldownEndTime = now + Math.max(0, timeUntilDash);
+                otherPlayer.dashCooldownEndTime = serverTimeToClient(data.dashCooldownEndTime);
             }
         }
     });
     
     socket.on('manaConfirmed', (data) => {
-        const now = performance.now() / 1000;
-        const serverNow = Date.now() / 1000;
-        
-        if (data.manaCooldownEndTime > 0) {
-            const timeUntilMana = data.manaCooldownEndTime - serverNow;
-            gameState.manaCooldownEndTime = now + Math.max(0, timeUntilMana);
-        } else {
-            gameState.manaCooldownEndTime = 0;
-        }
-        
-        if (data.manaCastEndTime > 0) {
-            const timeUntilCastComplete = data.manaCastEndTime - serverNow;
-            gameState.manaCastEndTime = now + Math.max(0, timeUntilCastComplete);
-        } else {
-            gameState.manaCastEndTime = 0;
-        }
-        
+        gameState.manaCooldownEndTime = serverTimeToClient(data.manaCooldownEndTime);
+        gameState.manaCastEndTime = serverTimeToClient(data.manaCastEndTime);
         gameState.isCastingMana = data.isCastingMana;
     });
     
     socket.on('playerMana', (data) => {
         const otherPlayer = otherPlayers.get(data.id);
         if (otherPlayer) {
-            otherPlayer.manaCooldownEndTime = data.manaCooldownEndTime;
-            const now = performance.now() / 1000;
-            const serverNow = Date.now() / 1000;
-            if (data.manaCastEndTime > 0) {
-                const timeUntilCastComplete = data.manaCastEndTime - serverNow;
-                otherPlayer.manaCastEndTime = now + Math.max(0, timeUntilCastComplete);
-            } else {
-                otherPlayer.manaCastEndTime = 0;
-            }
+            otherPlayer.manaCooldownEndTime = serverTimeToClient(data.manaCooldownEndTime);
+            otherPlayer.manaCastEndTime = serverTimeToClient(data.manaCastEndTime);
             otherPlayer.isCastingMana = data.isCastingMana;
         }
     });
@@ -398,6 +337,17 @@ export function initNetwork(callbacks) {
         if (isAttacker) {
             triggerHitCameraEffect(data.targetX, data.targetY, false);
             triggerHitFeedback(data.targetId, data.targetX, data.targetY, false);
+            
+            // Play sound effects for attacker
+            if (data.damageDealt > 0) {
+                if (data.targetNewHealth <= 0) {
+                    // Kill sound
+                    playKillSound();
+                } else {
+                    // Damage sound
+                    playDamageSound();
+                }
+            }
         }
         
         if (isTarget) {
@@ -444,10 +394,7 @@ export function initNetwork(callbacks) {
     socket.on('playerDied', (data) => {
         if (data.id === myPlayerId) {
             gameState.isDead = true;
-            const serverNow = Date.now() / 1000;
-            const now = performance.now() / 1000;
-            const timeUntilRespawn = data.respawnTime - serverNow;
-            gameState.respawnTime = now + Math.max(0, timeUntilRespawn);
+            gameState.respawnTime = serverTimeToClient(data.respawnTime);
             showDeathUI();
         } else {
             const otherPlayer = otherPlayers.get(data.id);
@@ -481,6 +428,10 @@ export function initNetwork(callbacks) {
                 otherPlayer.y = data.y;
                 otherPlayer.targetX = data.targetX;
                 otherPlayer.targetY = data.targetY;
+                otherPlayer.interpolatedX = data.x;
+                otherPlayer.interpolatedY = data.y;
+                // Force health dots to update
+                forceUpdateHealthDots(otherPlayer);
             }
         }
     });

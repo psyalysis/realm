@@ -25,122 +25,148 @@ const occupiedSpawnPositions = new Set(); // Track occupied spawn positions
 function findSpawnPosition() {
     const centerX = Math.floor(WORLD_WIDTH / 2);
     const centerY = Math.floor(WORLD_HEIGHT / 2);
-    const spawnRadius = 5; // Maximum distance from center to spawn
-    const maxAttempts = 100; // Maximum attempts to find a valid position
+    const spawnRadius = 6; // Match the spawn clear radius from map generation
+    const maxAttempts = 200; // Increased attempts
     
-    // Try to find a valid spawn position
+    // Helper to check if position is valid and available
+    const isValidSpawn = (x, y) => {
+        if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) return false;
+        if (isWall(x, y)) return false;
+        const positionKey = `${x},${y}`;
+        return !occupiedSpawnPositions.has(positionKey);
+    };
+    
+    // Try random positions first (faster for most cases)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        // Generate random angle and distance
         const angle = Math.random() * Math.PI * 2;
         const distance = Math.random() * spawnRadius;
-        
-        // Calculate spawn position
         const spawnX = Math.floor(centerX + Math.cos(angle) * distance);
         const spawnY = Math.floor(centerY + Math.sin(angle) * distance);
         
-        // Check if position is valid
-        if (spawnX >= 0 && spawnX < WORLD_WIDTH && 
-            spawnY >= 0 && spawnY < WORLD_HEIGHT &&
-            !isWall(spawnX, spawnY)) {
-            
-            // Check if position is already occupied
+        if (isValidSpawn(spawnX, spawnY)) {
             const positionKey = `${spawnX},${spawnY}`;
-            if (!occupiedSpawnPositions.has(positionKey)) {
-                // Mark position as occupied
-                occupiedSpawnPositions.add(positionKey);
-                return { x: spawnX, y: spawnY };
-            }
+            occupiedSpawnPositions.add(positionKey);
+            return { x: spawnX, y: spawnY };
         }
     }
     
-    // Fallback: try positions in a spiral pattern around center
-    // First check center itself
-    if (!isWall(centerX, centerY)) {
-        const centerKey = `${centerX},${centerY}`;
-        if (!occupiedSpawnPositions.has(centerKey)) {
-            occupiedSpawnPositions.add(centerKey);
-            return { x: centerX, y: centerY };
-        }
+    // Fallback: systematic search in expanding radius from center
+    // Check center first
+    if (isValidSpawn(centerX, centerY)) {
+        occupiedSpawnPositions.add(`${centerX},${centerY}`);
+        return { x: centerX, y: centerY };
     }
     
-    // Then check in expanding radius
+    // Then check in expanding radius (check all positions, not just edges)
     for (let radius = 1; radius <= spawnRadius; radius++) {
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
-                // Only check positions on the edge of current radius
-                if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+                // Check all positions within radius (not just edges)
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance > radius) continue;
                 
                 const spawnX = centerX + dx;
                 const spawnY = centerY + dy;
                 
-                if (spawnX >= 0 && spawnX < WORLD_WIDTH && 
-                    spawnY >= 0 && spawnY < WORLD_HEIGHT &&
-                    !isWall(spawnX, spawnY)) {
-                    
+                if (isValidSpawn(spawnX, spawnY)) {
                     const positionKey = `${spawnX},${spawnY}`;
-                    if (!occupiedSpawnPositions.has(positionKey)) {
-                        occupiedSpawnPositions.add(positionKey);
-                        return { x: spawnX, y: spawnY };
-                    }
+                    occupiedSpawnPositions.add(positionKey);
+                    return { x: spawnX, y: spawnY };
                 }
             }
         }
     }
     
-    // Last resort: use center if nothing else works (but validate it's not a wall)
-    const centerKey = `${centerX},${centerY}`;
-    if (!isWall(centerX, centerY) && !occupiedSpawnPositions.has(centerKey)) {
-        occupiedSpawnPositions.add(centerKey);
-        return { x: centerX, y: centerY };
-    }
-    
-    // If even center is occupied or is a wall, find any free spot
-    console.warn('Warning: All spawn positions occupied or center is wall, searching for free spot');
-    // Search entire map for a free spot
-    for (let radius = 0; radius <= WORLD_WIDTH; radius++) {
+    // Last resort: search entire map systematically
+    console.warn('Warning: Spawn area full, searching entire map for valid position');
+    for (let radius = spawnRadius + 1; radius <= WORLD_WIDTH; radius++) {
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
-                // Only check positions on the edge of current radius
-                if (radius > 0 && Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+                // Only check edge positions to avoid redundant checks
+                if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
                 
                 const testX = centerX + dx;
                 const testY = centerY + dy;
                 
-                if (testX >= 0 && testX < WORLD_WIDTH && 
-                    testY >= 0 && testY < WORLD_HEIGHT &&
-                    !isWall(testX, testY)) {
-                    
+                if (isValidSpawn(testX, testY)) {
                     const positionKey = `${testX},${testY}`;
-                    if (!occupiedSpawnPositions.has(positionKey)) {
-                        occupiedSpawnPositions.add(positionKey);
-                        console.log(`Found free spawn position at (${testX}, ${testY})`);
-                        return { x: testX, y: testY };
-                    }
+                    occupiedSpawnPositions.add(positionKey);
+                    console.log(`Found free spawn position at (${testX}, ${testY})`);
+                    return { x: testX, y: testY };
                 }
             }
         }
     }
     
-    // Absolute last resort: use findNearestValidPosition
+    // Absolute last resort: use findNearestValidPosition (guaranteed to find something)
     console.error('ERROR: Could not find any valid spawn position! Using findNearestValidPosition');
     const validPos = findNearestValidPosition(centerX, centerY);
     const positionKey = `${validPos.x},${validPos.y}`;
-    occupiedSpawnPositions.add(positionKey);
+    // Don't mark as occupied if it's a wall (shouldn't happen, but safety check)
+    if (!isWall(validPos.x, validPos.y)) {
+        occupiedSpawnPositions.add(positionKey);
+    }
     return validPos;
 }
 
 // Create new player
 function createPlayer(playerId) {
-    const spawnPos = findSpawnPosition();
+    let spawnPos = findSpawnPosition();
+    const originalPos = { x: spawnPos.x, y: spawnPos.y };
     
-    // Double-check that spawn position is valid (not a wall)
+    // Triple-check that spawn position is valid (not a wall)
+    // This is a critical safety check - never spawn in a wall
     if (isWall(spawnPos.x, spawnPos.y)) {
         console.error(`ERROR: Player ${playerId} attempted to spawn on wall at (${spawnPos.x}, ${spawnPos.y})!`);
-        console.error('Correcting spawn position...');
+        console.error('Correcting spawn position using findNearestValidPosition...');
         const validPos = findNearestValidPosition(spawnPos.x, spawnPos.y);
-        spawnPos.x = validPos.x;
-        spawnPos.y = validPos.y;
-        console.log(`Corrected spawn position to (${spawnPos.x}, ${spawnPos.y})`);
+        
+        // Verify the corrected position is actually valid
+        if (isWall(validPos.x, validPos.y)) {
+            console.error(`CRITICAL: findNearestValidPosition returned wall at (${validPos.x}, ${validPos.y})!`);
+            // Try center as absolute fallback
+            const centerX = Math.floor(WORLD_WIDTH / 2);
+            const centerY = Math.floor(WORLD_HEIGHT / 2);
+            if (!isWall(centerX, centerY)) {
+                spawnPos = { x: centerX, y: centerY };
+                console.log(`Using center as fallback: (${centerX}, ${centerY})`);
+            } else {
+                // Last resort: search for ANY non-wall position
+                spawnPos = null;
+                for (let y = 0; y < WORLD_HEIGHT; y++) {
+                    for (let x = 0; x < WORLD_WIDTH; x++) {
+                        if (!isWall(x, y)) {
+                            spawnPos = { x, y };
+                            console.log(`Found emergency spawn at (${x}, ${y})`);
+                            break;
+                        }
+                    }
+                    if (spawnPos && !isWall(spawnPos.x, spawnPos.y)) break;
+                }
+            }
+        } else {
+            spawnPos = validPos;
+        }
+        
+        // Update occupied positions if position changed
+        if (spawnPos && (originalPos.x !== spawnPos.x || originalPos.y !== spawnPos.y)) {
+            const oldKey = `${originalPos.x},${originalPos.y}`;
+            occupiedSpawnPositions.delete(oldKey);
+            if (!isWall(spawnPos.x, spawnPos.y)) {
+                const newKey = `${spawnPos.x},${spawnPos.y}`;
+                occupiedSpawnPositions.add(newKey);
+            }
+        }
+        
+        if (spawnPos) {
+            console.log(`Corrected spawn position to (${spawnPos.x}, ${spawnPos.y})`);
+        }
+    }
+    
+    // Final validation before creating player
+    if (!spawnPos || isWall(spawnPos.x, spawnPos.y)) {
+        console.error(`CRITICAL ERROR: Player ${playerId} would spawn in wall at (${spawnPos ? `${spawnPos.x}, ${spawnPos.y}` : 'null'}) after all corrections!`);
+        throw new Error(`Cannot create player ${playerId}: no valid spawn position found`);
     }
     
     const player = {
@@ -196,10 +222,11 @@ function removePlayer(playerId) {
     return wasRemoved;
 }
 
-// Find player at a specific position
+// Find player at a specific position (excludes dead players)
 function getPlayerAtPosition(x, y, excludePlayerId = null) {
     for (const [id, p] of gameState.players.entries()) {
         if (id === excludePlayerId) continue;
+        if (p.isDead) continue; // Dead players don't block movement
         if (p.x === x && p.y === y) {
             return p;
         }

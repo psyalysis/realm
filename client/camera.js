@@ -17,44 +17,32 @@ export function updateTileSize(newTileSize) {
     tileSize = newTileSize;
 }
 
-export function centerCameraOnRedSquare() {
-    // Don't reset camera if hit effect is active (let hit effect control camera)
-    if (gameState.isHitEffectActive) {
-        return;
-    }
-    
-    const viewportWidth = viewport.clientWidth;
-    const viewportHeight = viewport.clientHeight;
-    
-    // Calculate how many tiles fit in viewport
-    const tilesVisibleX = viewportWidth / tileSize;
-    const tilesVisibleY = viewportHeight / tileSize;
-    
-    // Center camera target on player (use interpolated position for smooth following during dash)
-    const playerX = gameState.isDashing ? gameState.playerInterpolated.x : gameState.player.x;
-    const playerY = gameState.isDashing ? gameState.playerInterpolated.y : gameState.player.y;
-    gameState.cameraTarget.x = playerX - (tilesVisibleX / 2);
-    gameState.cameraTarget.y = playerY - (tilesVisibleY / 2);
-    
-    // Clamp camera target to world boundaries
+// Get viewport dimensions in tiles
+function getViewportTiles() {
+    return {
+        x: viewport.clientWidth / tileSize,
+        y: viewport.clientHeight / tileSize
+    };
+}
+
+// Center camera on a position
+function centerCameraOnPosition(posX, posY) {
+    const tiles = getViewportTiles();
+    gameState.cameraTarget.x = posX - (tiles.x / 2);
+    gameState.cameraTarget.y = posY - (tiles.y / 2);
     clampCameraTarget();
 }
 
-// Move camera to target position (for hit effect)
+export function centerCameraOnRedSquare() {
+    if (gameState.isHitEffectActive) return;
+    
+    const playerX = gameState.isDashing ? gameState.playerInterpolated.x : gameState.player.x;
+    const playerY = gameState.isDashing ? gameState.playerInterpolated.y : gameState.player.y;
+    centerCameraOnPosition(playerX, playerY);
+}
+
 export function moveCameraToPosition(targetX, targetY) {
-    const viewportWidth = viewport.clientWidth;
-    const viewportHeight = viewport.clientHeight;
-    
-    // Calculate how many tiles fit in viewport
-    const tilesVisibleX = viewportWidth / tileSize;
-    const tilesVisibleY = viewportHeight / tileSize;
-    
-    // Center camera target on target position
-    gameState.cameraTarget.x = targetX - (tilesVisibleX / 2);
-    gameState.cameraTarget.y = targetY - (tilesVisibleY / 2);
-    
-    // Clamp camera target to world boundaries
-    clampCameraTarget();
+    centerCameraOnPosition(targetX, targetY);
 }
 
 // Trigger camera effect when hitting an enemy or being hit
@@ -85,24 +73,10 @@ export function triggerHitCameraEffect(enemyX, enemyY, bumpAway = false) {
     // Bump amount (in grid tiles) - more aggressive when hitting (whack effect)
     const BUMP_DISTANCE = bumpAway ? 0.4 : 0.7; // Bigger jab when attacking
     
-    // Calculate bump position (current camera position + bump in direction)
-    const viewportWidth = viewport.clientWidth;
-    const viewportHeight = viewport.clientHeight;
-    const tilesVisibleX = viewportWidth / tileSize;
-    const tilesVisibleY = viewportHeight / tileSize;
-    
-    // Current camera center (player position)
-    const currentCameraCenterX = playerX;
-    const currentCameraCenterY = playerY;
-    
     // Bump camera in hit direction
-    const bumpedCenterX = currentCameraCenterX + bumpX * BUMP_DISTANCE;
-    const bumpedCenterY = currentCameraCenterY + bumpY * BUMP_DISTANCE;
-    
-    // Set camera target to bumped position
-    gameState.cameraTarget.x = bumpedCenterX - (tilesVisibleX / 2);
-    gameState.cameraTarget.y = bumpedCenterY - (tilesVisibleY / 2);
-    clampCameraTarget();
+    const bumpedCenterX = playerX + bumpX * BUMP_DISTANCE;
+    const bumpedCenterY = playerY + bumpY * BUMP_DISTANCE;
+    centerCameraOnPosition(bumpedCenterX, bumpedCenterY);
     
     // Use faster camera speed for quick bump effect - even faster when attacking
     const originalArrivalTime = gameState.cameraArrivalTime;
@@ -135,14 +109,9 @@ export function triggerHitCameraEffect(enemyX, enemyY, bumpAway = false) {
 }
 
 export function clampCameraTarget() {
-    const viewportWidth = viewport.clientWidth;
-    const viewportHeight = viewport.clientHeight;
-    
-    const tilesVisibleX = viewportWidth / tileSize;
-    const tilesVisibleY = viewportHeight / tileSize;
-    
-    const maxCameraX = WORLD_WIDTH - tilesVisibleX;
-    const maxCameraY = WORLD_HEIGHT - tilesVisibleY;
+    const tiles = getViewportTiles();
+    const maxCameraX = WORLD_WIDTH - tiles.x;
+    const maxCameraY = WORLD_HEIGHT - tiles.y;
     
     gameState.cameraTarget.x = Math.max(0, Math.min(maxCameraX, gameState.cameraTarget.x));
     gameState.cameraTarget.y = Math.max(0, Math.min(maxCameraY, gameState.cameraTarget.y));

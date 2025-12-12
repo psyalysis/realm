@@ -18,7 +18,7 @@ import {
     MANA_CAST_TIME
 } from './config.js';
 import { getMap, initEmptyMap } from './map.js';
-import { gridToWorldPixels, worldToViewport } from './utils.js';
+import { gridToWorldPixels, worldToViewport, updateStyle, getMovementDirection, calculateSquashStretch, getCurrentTime } from './utils.js';
 import { getCameraInterpolated } from './camera.js';
 import { otherPlayers } from './player.js';
 
@@ -257,52 +257,35 @@ function drawWallCell(ctx, x, y, width, height, radius, gridX, gridY, map) {
     ctx.closePath();
 }
 
-function renderRedSquare() {
-    // Hide player cube when dead
-    if (gameState.isDead) {
-        if (redSquare.style.display !== 'none') {
-            redSquare.style.display = 'none';
-        }
+// Unified player rendering function
+function renderPlayer(playerData, element, healthDotsContainer, manaCastBarElement, manaCastFillElement) {
+    const isDead = playerData.isDead;
+    updateStyle(element, 'display', isDead ? 'none' : 'block');
+    if (isDead) {
+        if (healthDotsContainer) updateStyle(healthDotsContainer, 'display', 'none');
+        if (manaCastBarElement) updateStyle(manaCastBarElement, 'display', 'none');
         return;
-    } else {
-        if (redSquare.style.display !== 'block') {
-            redSquare.style.display = 'block';
-        }
     }
     
-    const worldPixels = gridToWorldPixels(gameState.playerInterpolated.x, gameState.playerInterpolated.y, tileSize);
+    const worldPixels = gridToWorldPixels(playerData.interpolatedX, playerData.interpolatedY, tileSize);
     const squareSize = Math.round(tileSize * PLAYER_SIZE);
     const offset = Math.round((tileSize - squareSize) / 2);
     
     let scaleX = 1.0;
     let scaleY = 1.0;
     
-    if (gameState.lastMovementDirection) {
-        const playerDiffX = gameState.playerTarget.x - gameState.playerInterpolated.x;
-        const playerDiffY = gameState.playerTarget.y - gameState.playerInterpolated.y;
-        const playerDistanceSquared = playerDiffX * playerDiffX + playerDiffY * playerDiffY;
-        const playerDistance = Math.sqrt(playerDistanceSquared);
-        const movementIntensity = Math.min(playerDistance, 1.0);
-        const stretchAmount = movementIntensity * SQUASH_STRETCH_INTENSITY;
-        const squashAmount = movementIntensity * (SQUASH_STRETCH_INTENSITY * 0.67);
-        
-        switch (gameState.lastMovementDirection) {
-            case 'LEFT':
-            case 'RIGHT':
-                scaleX = 1.0 + stretchAmount;
-                scaleY = 1.0 - squashAmount;
-                break;
-            case 'UP':
-            case 'DOWN':
-                scaleX = 1.0 - squashAmount;
-                scaleY = 1.0 + stretchAmount;
-                break;
-        }
+    if (playerData.lastMovementDirection) {
+        const diffX = playerData.targetX - playerData.interpolatedX;
+        const diffY = playerData.targetY - playerData.interpolatedY;
+        const distance = Math.sqrt(diffX * diffX + diffY * diffY);
+        const { scaleX: sx, scaleY: sy } = calculateSquashStretch(distance, playerData.lastMovementDirection, SQUASH_STRETCH_INTENSITY);
+        scaleX = sx;
+        scaleY = sy;
     }
     
-    if (gameState.wobbleStartTime !== null) {
+    if (playerData.wobbleStartTime !== null) {
         const currentTime = performance.now();
-        const wobbleAge = (currentTime - gameState.wobbleStartTime) / 1000;
+        const wobbleAge = (currentTime - playerData.wobbleStartTime) / 1000;
         
         if (wobbleAge < JELLY_WOBBLE_DURATION) {
             const decay = 1.0 - (wobbleAge / JELLY_WOBBLE_DURATION);
@@ -311,182 +294,69 @@ function renderRedSquare() {
             scaleX += wobbleX;
             scaleY += wobbleY;
         } else {
-            gameState.wobbleStartTime = null;
+            playerData.wobbleStartTime = null;
         }
     }
     
-    const newLeft = (worldPixels.x + offset) + 'px';
-    const newTop = (worldPixels.y + offset) + 'px';
-    const newWidth = squareSize + 'px';
-    const newHeight = squareSize + 'px';
-    const newTransform = `scale(${scaleX}, ${scaleY})`;
-    
-    if (redSquare.style.width !== newWidth) {
-        redSquare.style.width = newWidth;
-    }
-    if (redSquare.style.height !== newHeight) {
-        redSquare.style.height = newHeight;
-    }
-    if (redSquare.style.left !== newLeft) {
-        redSquare.style.left = newLeft;
-    }
-    if (redSquare.style.top !== newTop) {
-        redSquare.style.top = newTop;
-    }
-    if (redSquare.style.transform !== newTransform) {
-        redSquare.style.transform = newTransform;
-        redSquare.style.transformOrigin = 'center center';
+    const playerLeft = worldPixels.x + offset;
+    const playerTop = worldPixels.y + offset;
+    updateStyle(element, 'left', playerLeft + 'px');
+    updateStyle(element, 'top', playerTop + 'px');
+    updateStyle(element, 'width', squareSize + 'px');
+    updateStyle(element, 'height', squareSize + 'px');
+    const transform = `scale(${scaleX}, ${scaleY})`;
+    if (element.style.transform !== transform) {
+        element.style.transform = transform;
+        element.style.transformOrigin = 'center center';
     }
     
-    if (gameState.isCastingMana) {
-        const currentTime = performance.now() / 1000;
-        const castProgress = Math.min(1.0, Math.max(0.0, (currentTime - (gameState.manaCastEndTime - MANA_CAST_TIME)) / MANA_CAST_TIME));
-        const playerLeft = worldPixels.x + offset;
-        const playerTop = worldPixels.y + offset;
-        const barOffset = 8;
-        
-        manaCastBar.style.display = 'block';
-        manaCastBar.style.width = squareSize + 'px';
-        manaCastBar.style.left = playerLeft + 'px';
-        manaCastBar.style.top = (playerTop - barOffset) + 'px';
-        manaCastFill.style.width = (castProgress * 100) + '%';
-    } else {
-        manaCastBar.style.display = 'none';
-    }
-    
-    // Hide health dots when dead
-    if (gameState.isDead) {
-        if (playerHealthDots.style.display !== 'none') {
-            playerHealthDots.style.display = 'none';
+    // Mana cast bar
+    if (manaCastBarElement && manaCastFillElement) {
+        if (playerData.isCastingMana && playerData.manaCastEndTime > 0) {
+            const currentTime = getCurrentTime();
+            const castProgress = Math.min(1.0, Math.max(0.0, (currentTime - (playerData.manaCastEndTime - MANA_CAST_TIME)) / MANA_CAST_TIME));
+            updateStyle(manaCastBarElement, 'display', 'block');
+            updateStyle(manaCastBarElement, 'width', squareSize + 'px');
+            updateStyle(manaCastBarElement, 'left', playerLeft + 'px');
+            updateStyle(manaCastBarElement, 'top', (playerTop - 8) + 'px');
+            updateStyle(manaCastFillElement, 'width', (castProgress * 100) + '%');
+        } else {
+            updateStyle(manaCastBarElement, 'display', 'none');
         }
-    } else {
-        // updateHealthDots will set display to 'flex' when positioning
-        updateHealthDots(playerHealthDots, gameState.health, gameState.maxHealth, worldPixels.x + offset, worldPixels.y + offset, squareSize);
     }
+    
+    // Health dots
+    if (healthDotsContainer) {
+        updateHealthDots(healthDotsContainer, playerData.health, playerData.maxHealth, playerLeft, playerTop, squareSize);
+    }
+}
+
+function renderRedSquare() {
+    renderPlayer(
+        {
+            isDead: gameState.isDead,
+            interpolatedX: gameState.playerInterpolated.x,
+            interpolatedY: gameState.playerInterpolated.y,
+            targetX: gameState.playerTarget.x,
+            targetY: gameState.playerTarget.y,
+            lastMovementDirection: gameState.lastMovementDirection,
+            wobbleStartTime: gameState.wobbleStartTime,
+            isCastingMana: gameState.isCastingMana,
+            manaCastEndTime: gameState.manaCastEndTime,
+            health: gameState.health,
+            maxHealth: gameState.maxHealth
+        },
+        redSquare,
+        playerHealthDots,
+        manaCastBar,
+        manaCastFill
+    );
 }
 
 function renderOtherPlayers() {
     for (const [playerId, player] of otherPlayers.entries()) {
         if (!player.element) continue;
-        
-        // Hide player cube when dead
-        if (player.isDead) {
-            if (player.element.style.display !== 'none') {
-                player.element.style.display = 'none';
-            }
-            continue;
-        } else {
-            if (player.element.style.display !== 'block') {
-                player.element.style.display = 'block';
-            }
-        }
-        
-        const worldPixels = gridToWorldPixels(player.interpolatedX, player.interpolatedY, tileSize);
-        const squareSize = Math.round(tileSize * PLAYER_SIZE);
-        const offset = Math.round((tileSize - squareSize) / 2);
-        
-        let scaleX = 1.0;
-        let scaleY = 1.0;
-        
-        if (player.lastMovementDirection) {
-            const playerDiffX = player.targetX - player.interpolatedX;
-            const playerDiffY = player.targetY - player.interpolatedY;
-            const playerDistanceSquared = playerDiffX * playerDiffX + playerDiffY * playerDiffY;
-            const playerDistance = Math.sqrt(playerDistanceSquared);
-            const movementIntensity = Math.min(playerDistance, 1.0);
-            const stretchAmount = movementIntensity * SQUASH_STRETCH_INTENSITY;
-            const squashAmount = movementIntensity * (SQUASH_STRETCH_INTENSITY * 0.67);
-            
-            switch (player.lastMovementDirection) {
-                case 'LEFT':
-                case 'RIGHT':
-                    scaleX = 1.0 + stretchAmount;
-                    scaleY = 1.0 - squashAmount;
-                    break;
-                case 'UP':
-                case 'DOWN':
-                    scaleX = 1.0 - squashAmount;
-                    scaleY = 1.0 + stretchAmount;
-                    break;
-            }
-        }
-        
-        if (player.wobbleStartTime !== null) {
-            const currentTime = performance.now();
-            const wobbleAge = (currentTime - player.wobbleStartTime) / 1000;
-            
-            if (wobbleAge < JELLY_WOBBLE_DURATION) {
-                const decay = 1.0 - (wobbleAge / JELLY_WOBBLE_DURATION);
-                const wobbleX = Math.sin(wobbleAge * JELLY_WOBBLE_FREQUENCY * Math.PI * 2) * JELLY_WOBBLE_INTENSITY * decay;
-                const wobbleY = Math.cos(wobbleAge * JELLY_WOBBLE_FREQUENCY * Math.PI * 2) * JELLY_WOBBLE_INTENSITY * decay;
-                scaleX += wobbleX;
-                scaleY += wobbleY;
-            } else {
-                player.wobbleStartTime = null;
-            }
-        }
-        
-        const newLeft = (worldPixels.x + offset) + 'px';
-        const newTop = (worldPixels.y + offset) + 'px';
-        const newWidth = squareSize + 'px';
-        const newHeight = squareSize + 'px';
-        const newTransform = `scale(${scaleX}, ${scaleY})`;
-        
-        if (!player._lastRender) {
-            player._lastRender = { width: '', height: '', left: '', top: '', transform: '' };
-        }
-        
-        if (player.element.style.width !== newWidth) {
-            player.element.style.width = newWidth;
-            player._lastRender.width = newWidth;
-        }
-        if (player.element.style.height !== newHeight) {
-            player.element.style.height = newHeight;
-            player._lastRender.height = newHeight;
-        }
-        if (player.element.style.left !== newLeft) {
-            player.element.style.left = newLeft;
-            player._lastRender.left = newLeft;
-        }
-        if (player.element.style.top !== newTop) {
-            player.element.style.top = newTop;
-            player._lastRender.top = newTop;
-        }
-        if (player.element.style.transform !== newTransform) {
-            player.element.style.transform = newTransform;
-            player.element.style.transformOrigin = 'center center';
-            player._lastRender.transform = newTransform;
-        }
-        
-        // Hide health dots when dead
-        if (player.healthDots) {
-            if (player.isDead) {
-                if (player.healthDots.style.display !== 'none') {
-                    player.healthDots.style.display = 'none';
-                }
-            } else {
-                // updateHealthDots will set display to 'flex' when positioning
-                updateHealthDots(player.healthDots, player.health, player.maxHealth, worldPixels.x + offset, worldPixels.y + offset, squareSize);
-            }
-        }
-        
-        if (player.manaCastBar && player.manaCastFill) {
-            const currentTime = performance.now() / 1000;
-            const playerLeft = worldPixels.x + offset;
-            const playerTop = worldPixels.y + offset;
-            const barOffset = 8;
-            
-            if (player.isCastingMana && player.manaCastEndTime > 0) {
-                const castProgress = Math.min(1.0, Math.max(0.0, (currentTime - (player.manaCastEndTime - MANA_CAST_TIME)) / MANA_CAST_TIME));
-                player.manaCastBar.style.display = 'block';
-                player.manaCastBar.style.width = squareSize + 'px';
-                player.manaCastBar.style.left = playerLeft + 'px';
-                player.manaCastBar.style.top = (playerTop - barOffset) + 'px';
-                player.manaCastFill.style.width = (castProgress * 100) + '%';
-            } else {
-                player.manaCastBar.style.display = 'none';
-            }
-        }
+        renderPlayer(player, player.element, player.healthDots, player.manaCastBar, player.manaCastFill);
     }
 }
 
@@ -518,10 +388,14 @@ function updateHealthDots(healthDotsContainer, health, maxHealth, playerLeft, pl
         healthDotsContainer.style.left = (playerLeft + (playerSize / 2) - (containerWidth / 2)) + 'px';
         healthDotsContainer.style.top = (playerTop - dotOffset) + 'px';
         healthDotsContainer.style.width = containerWidth + 'px';
-        healthDotsContainer.style.display = 'flex';
         cache.lastLeft = playerLeft;
         cache.lastTop = playerTop;
         cache.lastSize = playerSize;
+    }
+    
+    // Always ensure health dots are visible (in case they were hidden when dead)
+    if (healthDotsContainer.style.display === 'none') {
+        healthDotsContainer.style.display = 'flex';
     }
     
     if (healthChanged) {
@@ -541,7 +415,11 @@ export function forceUpdateHealthDots(player) {
     
     const cache = healthDotsCache.get(player.healthDots);
     if (cache) {
+        // Invalidate both health and position cache to force update
         cache.lastHealth = -1;
+        cache.lastLeft = -1;
+        cache.lastTop = -1;
+        cache.lastSize = -1;
     }
     
     const worldPixels = gridToWorldPixels(player.interpolatedX, player.interpolatedY, tileSize);

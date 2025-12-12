@@ -119,10 +119,9 @@ function init() {
         render
     });
     
-    // Update network state in other modules
+    // Update network state in other modules (network will update when connected)
     const networkState = getNetworkState();
     updateNetworkState(networkState);
-    initInput(viewport, networkState);
     
     // Generate initial map
     generateMap();
@@ -149,7 +148,8 @@ function init() {
     initAnimation(viewport, tileSize, {
         processNextMovement,
         queueMovementFromPressedKeys,
-        render
+        render,
+        executeMovement
     });
     
     // Initialize UI

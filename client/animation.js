@@ -5,8 +5,8 @@
 import { gameState } from './gameState.js';
 import { BASE_ANIMATION_SPEED, DASH_SPEED, TRANSITION_THRESHOLD, WORLD_WIDTH, WORLD_HEIGHT } from './config.js';
 import { isWall, clampInterpolatedPosition } from './map.js';
-import { easeOutCubic } from './utils.js';
-import { centerCameraOnRedSquare, clampCameraTarget } from './camera.js';
+import { easeOutCubic, getCurrentTime, getMovementDirection } from './utils.js';
+import { centerCameraOnRedSquare } from './camera.js';
 import { updateDashCooldownBar, updateHealthBar, updateManaBar, checkManaCastComplete } from './abilities.js';
 import { otherPlayers } from './player.js';
 import { setPreviousHealth } from './gameState.js';
@@ -17,7 +17,7 @@ let lastFrameTime = performance.now();
 let animationFrameId = null;
 
 // Callbacks (will be set by main script)
-let processNextMovement, queueMovementFromPressedKeys, render;
+let processNextMovement, queueMovementFromPressedKeys, render, executeMovement;
 
 export function initAnimation(viewportElement, currentTileSize, callbacks) {
     viewport = viewportElement;
@@ -25,6 +25,7 @@ export function initAnimation(viewportElement, currentTileSize, callbacks) {
     processNextMovement = callbacks.processNextMovement;
     queueMovementFromPressedKeys = callbacks.queueMovementFromPressedKeys;
     render = callbacks.render;
+    executeMovement = callbacks.executeMovement;
 }
 
 export function updateTileSize(newTileSize) {
@@ -52,6 +53,7 @@ function updateAnimations() {
     const currentTime = performance.now();
     const deltaTime = Math.min((currentTime - lastFrameTime) / 1000, 0.1);
     lastFrameTime = currentTime;
+    const currentTimeSeconds = currentTime / 1000;
     
     updateDashCooldownBar();
     
@@ -65,8 +67,6 @@ function updateAnimations() {
     updateHealthBar(currentPreviousHealth);
     
     updateManaBar();
-    
-    const currentTimeSeconds = currentTime / 1000;
     
     // Player movement interpolation
     const playerDiffX = gameState.playerTarget.x - gameState.playerInterpolated.x;
@@ -83,6 +83,7 @@ function updateAnimations() {
             gameState.isDashing = false;
             gameState.dashEndTime = 0;
             gameState.dashDirection = null;
+            gameState.dashQueue = [];
         }
         
         if (gameState.lastMovementDirection !== null && gameState.wobbleStartTime === null) {
@@ -92,27 +93,38 @@ function updateAnimations() {
         gameState.lastMovementDirection = null;
         
         if (!gameState.isCastingMana) {
-            if (gameState.movementQueue.length > 0 && processNextMovement) {
+            // Process dash queue first (dash movements take priority)
+            if (gameState.dashQueue.length > 0 && executeMovement) {
+                const dashAction = gameState.dashQueue[0]; // Peek at first item
+                // Execute dash movement immediately (it will be removed from queue after completion)
+                executeMovement(dashAction);
+            } else if (gameState.movementQueue.length > 0 && processNextMovement) {
                 processNextMovement();
             } else if (gameState.pressedKeys.size > 0 && queueMovementFromPressedKeys) {
                 queueMovementFromPressedKeys();
             }
         }
     } else {
-        if (Math.abs(playerDiffX) > Math.abs(playerDiffY)) {
-            gameState.lastMovementDirection = playerDiffX > 0 ? 'RIGHT' : 'LEFT';
-        } else {
-            gameState.lastMovementDirection = playerDiffY > 0 ? 'DOWN' : 'UP';
-        }
+        gameState.lastMovementDirection = getMovementDirection(playerDiffX, playerDiffY);
         
         gameState.wobbleStartTime = null;
         
-        if (playerDistance < TRANSITION_THRESHOLD && gameState.movementQueue.length > 0 && processNextMovement) {
+        // Check if dash is still active
+        const isDashing = gameState.dashEndTime && gameState.dashEndTime > currentTimeSeconds;
+        
+        // During dash, use higher transition threshold for faster chaining
+        const effectiveTransitionThreshold = isDashing ? 0.3 : TRANSITION_THRESHOLD;
+        
+        // Process dash queue during movement if close enough to target
+        if (isDashing && gameState.dashQueue.length > 0 && executeMovement && playerDistance < effectiveTransitionThreshold) {
+            const dashAction = gameState.dashQueue[0];
+            executeMovement(dashAction);
+        }
+        
+        if (playerDistance < effectiveTransitionThreshold && gameState.movementQueue.length > 0 && processNextMovement) {
             processNextMovement();
         }
         
-        // Check if dash is still active
-        const isDashing = gameState.dashEndTime && gameState.dashEndTime > currentTimeSeconds;
         const currentSpeed = isDashing ? DASH_SPEED : BASE_ANIMATION_SPEED;
         const moveAmount = currentSpeed * deltaTime;
         const progress = Math.min(moveAmount / playerDistance, 1);
@@ -153,13 +165,7 @@ function updateAnimations() {
     // Update camera target during dash
     const isDashingForCamera = gameState.dashEndTime && gameState.dashEndTime > currentTimeSeconds;
     if (isDashingForCamera && !gameState.isHitEffectActive) {
-        const viewportWidth = viewport.clientWidth;
-        const viewportHeight = viewport.clientHeight;
-        const tilesVisibleX = viewportWidth / tileSize;
-        const tilesVisibleY = viewportHeight / tileSize;
-        gameState.cameraTarget.x = gameState.playerInterpolated.x - (tilesVisibleX / 2);
-        gameState.cameraTarget.y = gameState.playerInterpolated.y - (tilesVisibleY / 2);
-        clampCameraTarget();
+        centerCameraOnRedSquare();
     }
     
     // Camera interpolation
@@ -202,11 +208,7 @@ function updateAnimations() {
             }
             player.lastMovementDirection = null;
         } else {
-            if (Math.abs(diffX) > Math.abs(diffY)) {
-                player.lastMovementDirection = diffX > 0 ? 'RIGHT' : 'LEFT';
-            } else {
-                player.lastMovementDirection = diffY > 0 ? 'DOWN' : 'UP';
-            }
+            player.lastMovementDirection = getMovementDirection(diffX, diffY);
             
             player.wobbleStartTime = null;
             

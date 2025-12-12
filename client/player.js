@@ -2,6 +2,8 @@
 // OTHER PLAYER MANAGEMENT
 // ============================================================================
 
+import { serverTimeToClient, getCurrentTime, getMovementDirection } from './utils.js';
+
 let world; // DOM element (will be initialized)
 export const otherPlayers = new Map(); // playerId -> player data
 
@@ -36,21 +38,9 @@ export function addOtherPlayer(playerData) {
     manaCastBarContainer.appendChild(manaCastBarFill);
     world.appendChild(manaCastBarContainer);
     
-    // Convert server timestamp to client-relative time for mana cast
-    const now = performance.now() / 1000;
-    const serverNow = Date.now() / 1000;
-    let manaCastEndTime = 0;
-    if (playerData.manaCastEndTime > 0) {
-        const timeUntilCastComplete = playerData.manaCastEndTime - serverNow;
-        manaCastEndTime = now + Math.max(0, timeUntilCastComplete);
-    }
-    
-    // Convert server timestamp to client-relative time for dash
-    let dashEndTime = 0;
-    if (playerData.dashEndTime > 0) {
-        const timeUntilDashEnd = playerData.dashEndTime - serverNow;
-        dashEndTime = now + Math.max(0, timeUntilDashEnd);
-    }
+    // Convert server timestamps to client-relative time
+    const manaCastEndTime = serverTimeToClient(playerData.manaCastEndTime);
+    const dashEndTime = serverTimeToClient(playerData.dashEndTime);
     
     otherPlayers.set(playerData.id, {
         id: playerData.id,
@@ -102,39 +92,28 @@ export function updateOtherPlayer(playerData) {
         if (playerData.isDashing !== undefined) player.isDashing = playerData.isDashing;
         if (playerData.isCastingMana !== undefined) player.isCastingMana = playerData.isCastingMana;
         if (playerData.isDead !== undefined) player.isDead = playerData.isDead;
-        if (playerData.isDead !== undefined) player.isDead = playerData.isDead;
         
         // Update cooldowns only if provided
         if (playerData.dashCooldownEndTime !== undefined) {
-            const now = performance.now() / 1000;
-            const serverNow = Date.now() / 1000;
-            if (playerData.dashCooldownEndTime === 0) {
-                player.dashCooldownEndTime = 0;
-            } else {
-                const timeUntilDash = playerData.dashCooldownEndTime - serverNow;
-                player.dashCooldownEndTime = now + Math.max(0, timeUntilDash);
-            }
+            player.dashCooldownEndTime = playerData.dashCooldownEndTime === 0 ? 0 : serverTimeToClient(playerData.dashCooldownEndTime);
         } else {
-            const now = performance.now() / 1000;
+            const now = getCurrentTime();
             if (player.dashCooldownEndTime > 0 && player.dashCooldownEndTime <= now) {
                 player.dashCooldownEndTime = 0;
             }
         }
         if (playerData.dashEndTime !== undefined) {
-            const now = performance.now() / 1000;
-            const serverNow = Date.now() / 1000;
             if (playerData.dashEndTime === 0) {
                 player.dashEndTime = 0;
                 player.dashDirection = null;
                 player.isDashing = false;
             } else {
-                const timeUntilDashEnd = playerData.dashEndTime - serverNow;
-                player.dashEndTime = now + Math.max(0, timeUntilDashEnd);
+                player.dashEndTime = serverTimeToClient(playerData.dashEndTime);
                 player.dashDirection = playerData.dashDirection || null;
                 player.isDashing = true;
             }
         } else {
-            const now = performance.now() / 1000;
+            const now = getCurrentTime();
             if (player.dashEndTime > 0 && player.dashEndTime <= now) {
                 player.dashEndTime = 0;
                 player.dashDirection = null;
@@ -143,10 +122,7 @@ export function updateOtherPlayer(playerData) {
         }
         
         if (playerData.manaCooldownEndTime !== undefined) {
-            const now = performance.now() / 1000;
-            const serverNow = Date.now() / 1000;
-            const timeUntilMana = playerData.manaCooldownEndTime - serverNow;
-            player.manaCooldownEndTime = now + Math.max(0, timeUntilMana);
+            player.manaCooldownEndTime = serverTimeToClient(playerData.manaCooldownEndTime);
         }
         
         // Update color if it changed
@@ -158,15 +134,8 @@ export function updateOtherPlayer(playerData) {
         }
         
         // Convert server timestamp to client-relative time
-        const now = performance.now() / 1000;
-        const serverNow = Date.now() / 1000;
         if (playerData.manaCastEndTime !== undefined) {
-            if (playerData.manaCastEndTime > 0) {
-                const timeUntilCastComplete = playerData.manaCastEndTime - serverNow;
-                player.manaCastEndTime = now + Math.max(0, timeUntilCastComplete);
-            } else {
-                player.manaCastEndTime = 0;
-            }
+            player.manaCastEndTime = serverTimeToClient(playerData.manaCastEndTime);
         }
     } else {
         addOtherPlayer(playerData);
@@ -188,11 +157,7 @@ export function updateOtherPlayerPosition(playerId, x, y, targetX, targetY) {
         const diffY = targetY - prevInterpolatedY;
         
         if (Math.abs(diffX) > 0.01 || Math.abs(diffY) > 0.01) {
-            if (Math.abs(diffX) > Math.abs(diffY)) {
-                player.lastMovementDirection = diffX > 0 ? 'RIGHT' : 'LEFT';
-            } else {
-                player.lastMovementDirection = diffY > 0 ? 'DOWN' : 'UP';
-            }
+            player.lastMovementDirection = getMovementDirection(diffX, diffY);
         }
         
         player.wobbleStartTime = null;

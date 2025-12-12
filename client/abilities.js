@@ -5,6 +5,7 @@
 import { gameState, performanceCache, setPreviousHealth, getPreviousHealth } from './gameState.js';
 import { DASH_COOLDOWN, DASH_DURATION, MANA_COOLDOWN, MANA_CAST_TIME, MAX_HEALTH, INPUT_MAP, WORLD_WIDTH, WORLD_HEIGHT } from './config.js';
 import { isWall } from './map.js';
+import { getCurrentTime } from './utils.js';
 
 // DOM elements (will be initialized)
 let dashCooldownFill, healthFill, manaFill, viewport, damageOverlay, gameNotRunningMessage;
@@ -31,7 +32,7 @@ export function updateNetworkState(networkState) {
 }
 
 export function updateDashCooldownBar() {
-    const currentTime = performance.now() / 1000;
+    const currentTime = getCurrentTime();
     
     // Safety check: if cooldown should have expired, clear it
     if (gameState.dashCooldownEndTime > 0 && gameState.dashCooldownEndTime <= currentTime) {
@@ -136,7 +137,7 @@ export function triggerDamageEffect() {
 }
 
 export function updateManaBar() {
-    const currentTime = performance.now() / 1000;
+    const currentTime = getCurrentTime();
     
     let fillPercentage;
     if (gameState.manaCooldownEndTime > currentTime) {
@@ -156,7 +157,7 @@ export function updateManaBar() {
 export function handleMana() {
     if (isConnected && socket) {
         socket.emit('mana');
-        const currentTime = performance.now() / 1000;
+        const currentTime = getCurrentTime();
         if (gameState.manaCooldownEndTime <= currentTime && 
             !gameState.isCastingMana && 
             gameState.health < gameState.maxHealth) {
@@ -183,7 +184,7 @@ export function handleMana() {
 
 // Check if mana cast is complete (called from animation loop)
 export function checkManaCastComplete(previousHealthRef) {
-    const currentTime = performance.now() / 1000;
+    const currentTime = getCurrentTime();
     if (gameState.isCastingMana && gameState.manaCastEndTime <= currentTime) {
         gameState.health = Math.min(gameState.maxHealth, gameState.health + 1);
         gameState.isCastingMana = false;
@@ -196,9 +197,10 @@ export function checkManaCastComplete(previousHealthRef) {
 // Dash handling
 let lastClientDashTime = 0;
 const CLIENT_DASH_RATE_LIMIT = 300;
+const DASH_DISTANCE = 4; // Number of cells to dash
 
 export function handleDash() {
-    const currentTime = performance.now() / 1000;
+    const currentTime = getCurrentTime();
     
     if (gameState.dashCooldownEndTime > currentTime) {
         return;
@@ -209,10 +211,10 @@ export function handleDash() {
         return;
     }
     
-    // Determine dash direction from current movement or pressed keys
+    // Determine dash direction from currently held WASD keys only
     let dashDirection = null;
     
-    // Priority 1: Check currently pressed movement keys
+    // Check currently pressed movement keys (must be held)
     const priorityKeys = ['w', 's', 'a', 'd'];
     for (const key of priorityKeys) {
         if (gameState.pressedKeys.has(key)) {
@@ -221,17 +223,7 @@ export function handleDash() {
         }
     }
     
-    // Priority 2: Use last movement direction if no keys pressed
-    if (!dashDirection && gameState.lastMovementDirection) {
-        switch(gameState.lastMovementDirection) {
-            case 'UP': dashDirection = 'MOVE_UP'; break;
-            case 'DOWN': dashDirection = 'MOVE_DOWN'; break;
-            case 'LEFT': dashDirection = 'MOVE_LEFT'; break;
-            case 'RIGHT': dashDirection = 'MOVE_RIGHT'; break;
-        }
-    }
-    
-    // If still no direction, can't dash
+    // If no WASD key is held, don't dash and don't consume cooldown
     if (!dashDirection) {
         return;
     }
@@ -240,6 +232,55 @@ export function handleDash() {
 }
 
 function executeDash(direction) {
+    // Calculate dash path: 4 cells in the dash direction
+    // Check each cell for walls and stop if we hit one
+    const dashQueue = [];
+    // Use target position to account for player currently moving
+    let currentX = gameState.playerTarget.x;
+    let currentY = gameState.playerTarget.y;
+    
+    // Calculate direction offsets
+    let deltaX = 0;
+    let deltaY = 0;
+    switch(direction) {
+        case 'MOVE_UP':
+            deltaY = -1;
+            break;
+        case 'MOVE_DOWN':
+            deltaY = 1;
+            break;
+        case 'MOVE_LEFT':
+            deltaX = -1;
+            break;
+        case 'MOVE_RIGHT':
+            deltaX = 1;
+            break;
+    }
+    
+    // Build dash queue: check each cell for walls
+    for (let i = 0; i < DASH_DISTANCE; i++) {
+        const nextX = currentX + deltaX;
+        const nextY = currentY + deltaY;
+        
+        // Check if next position is valid (not a wall, not out of bounds)
+        if (nextX < 0 || nextX >= WORLD_WIDTH || 
+            nextY < 0 || nextY >= WORLD_HEIGHT || 
+            isWall(nextX, nextY)) {
+            // Hit a wall or boundary, stop dashing
+            break;
+        }
+        
+        // Valid position, add to dash queue
+        dashQueue.push(direction);
+        currentX = nextX;
+        currentY = nextY;
+    }
+    
+    // If no valid dash cells, don't dash and don't consume cooldown
+    if (dashQueue.length === 0) {
+        return;
+    }
+    
     if (isConnected && socket) {
         const now = performance.now();
         if (now - lastClientDashTime < CLIENT_DASH_RATE_LIMIT) return;
@@ -250,22 +291,27 @@ function executeDash(direction) {
             return;
         }
         
+        // Store dash queue and activate dash
+        gameState.dashQueue = dashQueue;
+        gameState.dashDirection = direction;
+        
         socket.emit('dash', direction);
         
-        // Optimistically activate dash speed boost
-        const optimisticTime = performance.now() / 1000;
-        gameState.dashEndTime = optimisticTime + DASH_DURATION;
+        // Optimistically activate dash
+        const optimisticTime = getCurrentTime();
+        // Dash duration based on number of cells (faster: 0.15s per cell)
+        gameState.dashEndTime = optimisticTime + (dashQueue.length * 0.15);
         gameState.dashCooldownEndTime = optimisticTime + DASH_COOLDOWN;
-        gameState.dashDirection = direction;
         gameState.isDashing = true;
         return;
     }
     
     // Single-player mode
-    const currentTime = performance.now() / 1000;
-    gameState.dashEndTime = currentTime + DASH_DURATION;
-    gameState.dashCooldownEndTime = currentTime + DASH_COOLDOWN;
+    const currentTime = getCurrentTime();
+    gameState.dashQueue = dashQueue;
     gameState.dashDirection = direction;
+    gameState.dashEndTime = currentTime + (dashQueue.length * 0.15);
+    gameState.dashCooldownEndTime = currentTime + DASH_COOLDOWN;
     gameState.isDashing = true;
 }
 

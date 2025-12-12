@@ -22,7 +22,7 @@ export const TRANSITION_THRESHOLD = 0.025; // Start next move at 85% completion 
 // Dash Configuration
 export const DASH_DURATION = 0.5; // Duration of dash speed boost in seconds
 export const DASH_COOLDOWN = 2.0; // Cooldown in seconds
-export const DASH_SPEED = 8; // Tiles per second (4x BASE_ANIMATION_SPEED)
+export const DASH_SPEED = 16; // Tiles per second (8x BASE_ANIMATION_SPEED, faster dash)
 
 // Mana Configuration
 export const MANA_COOLDOWN = 7.0; // Cooldown in seconds

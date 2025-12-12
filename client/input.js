@@ -5,6 +5,7 @@
 import { gameState } from './gameState.js';
 import { INPUT_MAP } from './config.js';
 import { handleDash, handleMana, updateHealthBar } from './abilities.js';
+import { getCurrentTime } from './utils.js';
 
 let viewport;
 let socket, isConnected;
@@ -22,6 +23,9 @@ export function updateNetworkState(networkState) {
 
 // Movement execution (will be provided by movement module)
 let executeMovement, processNextMovement;
+
+// Track keys that have already triggered movement (to prevent holding keys)
+const processedKeys = new Set();
 
 export function setMovementFunctions(executeFn, processNextFn) {
     executeMovement = executeFn;
@@ -78,8 +82,13 @@ export function handleKeyPress(event) {
     if (action) {
         event.preventDefault();
         event.stopPropagation();
-        gameState.pressedKeys.add(key);
-        handleAction(action);
+        
+        // Only process if this key hasn't already triggered a movement
+        if (!processedKeys.has(key)) {
+            gameState.pressedKeys.add(key);
+            processedKeys.add(key);
+            handleAction(action);
+        }
     }
 }
 
@@ -103,9 +112,11 @@ export function handleKeyRelease(event) {
         event.preventDefault();
         event.stopPropagation();
         gameState.pressedKeys.delete(key);
+        // Allow this key to trigger movement again on next press
+        processedKeys.delete(key);
         
         // Check if dashing and block removal of dash direction from queue
-        const currentTime = performance.now() / 1000;
+        const currentTime = getCurrentTime();
         const isDashing = gameState.dashEndTime && gameState.dashEndTime > currentTime;
         
         if (!isDashing) {
@@ -135,7 +146,7 @@ function handleAction(action) {
     }
     
     // Check if dashing and block movement in other directions
-    const currentTime = performance.now() / 1000;
+    const currentTime = getCurrentTime();
     const isDashing = gameState.dashEndTime && gameState.dashEndTime > currentTime;
     if (isDashing && gameState.dashDirection && action !== gameState.dashDirection) {
         // Block movement in directions other than dash direction
@@ -164,25 +175,8 @@ function handleAction(action) {
 }
 
 export function queueMovementFromPressedKeys() {
-    if (gameState.isDead) {
-        return;
-    }
-    
-    if (gameState.isCastingMana) {
-        return;
-    }
-    
-    for (const key of gameState.pressedKeys) {
-        const action = INPUT_MAP[key];
-        if (action) {
-            if (!gameState.movementQueue.includes(action) && gameState.movementQueue.length < 2) {
-                gameState.movementQueue.push(action);
-            }
-        }
-    }
-    
-    if (gameState.movementQueue.length > 0 && processNextMovement) {
-        processNextMovement();
-    }
+    // Disabled - keys must be pressed again to move (no holding keys)
+    // This function is kept for compatibility but does nothing
+    return;
 }
 

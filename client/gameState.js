@@ -16,6 +16,7 @@ export const gameState = {
     isHitEffectActive: false,
     zoom: 4.0,
     movementQueue: [],
+    dashQueue: [], // Queue of movements for active dash (4 cells)
     lastMovementDirection: null,
     wobbleStartTime: null,
     pressedKeys: new Set(),

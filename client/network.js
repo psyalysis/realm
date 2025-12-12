@@ -11,7 +11,7 @@ import { addOtherPlayer, removeOtherPlayer, updateOtherPlayer, updateOtherPlayer
 import { triggerHitCameraEffect, getCameraInterpolated } from './camera.js';
 import { triggerHitFeedback, forceUpdateHealthDots } from './renderer.js';
 import { gridToWorldPixels, worldToViewport, serverTimeToClient, getCurrentTime } from './utils.js';
-import { playDamageSound, playKillSound } from './sounds.js';
+import { playDamageSound, playKillSound, playMoveSound, playDashSound, playInjurySound, playKillSuccessSound, playManaSound } from './sounds.js';
 
 // Network state
 let socket = null;
@@ -241,6 +241,9 @@ export function initNetwork(callbacks) {
             gameState.playerTarget.y = data.targetY;
         }
         
+        // Play move sound when player moves
+        playMoveSound();
+        
         if (!gameState.isHitEffectActive) {
             centerCameraOnRedSquare();
         }
@@ -273,6 +276,14 @@ export function initNetwork(callbacks) {
     
     socket.on('playerMoved', (data) => {
         updateOtherPlayerPosition(data.id, data.x, data.y, data.targetX, data.targetY);
+        // Play move sound when other players move (distance-based volume)
+        const distance = Math.sqrt(
+            Math.pow(data.x - gameState.player.x, 2) + 
+            Math.pow(data.y - gameState.player.y, 2)
+        );
+        const maxDistance = 20; // Max distance for sound to be audible
+        const volume = Math.max(0, 0.5 * (1 - distance / maxDistance));
+        playMoveSound(volume);
     });
     
     socket.on('dashConfirmed', (data) => {
@@ -282,6 +293,8 @@ export function initNetwork(callbacks) {
             gameState.isDashing = true;
         }
         gameState.dashCooldownEndTime = serverTimeToClient(data.dashCooldownEndTime);
+        // Play dash sound when player dashes
+        playDashSound();
     });
     
     socket.on('playerDashed', (data) => {
@@ -296,12 +309,24 @@ export function initNetwork(callbacks) {
                 otherPlayer.dashCooldownEndTime = serverTimeToClient(data.dashCooldownEndTime);
             }
         }
+        // Play dash sound when other players dash (distance-based volume)
+        if (otherPlayer) {
+            const distance = Math.sqrt(
+                Math.pow(otherPlayer.x - gameState.player.x, 2) + 
+                Math.pow(otherPlayer.y - gameState.player.y, 2)
+            );
+            const maxDistance = 20; // Max distance for sound to be audible
+            const volume = Math.max(0, 0.5 * (1 - distance / maxDistance));
+            playDashSound(volume);
+        }
     });
     
     socket.on('manaConfirmed', (data) => {
         gameState.manaCooldownEndTime = serverTimeToClient(data.manaCooldownEndTime);
         gameState.manaCastEndTime = serverTimeToClient(data.manaCastEndTime);
         gameState.isCastingMana = data.isCastingMana;
+        // Play mana sound when player uses mana
+        playManaSound();
     });
     
     socket.on('playerMana', (data) => {
@@ -310,6 +335,16 @@ export function initNetwork(callbacks) {
             otherPlayer.manaCooldownEndTime = serverTimeToClient(data.manaCooldownEndTime);
             otherPlayer.manaCastEndTime = serverTimeToClient(data.manaCastEndTime);
             otherPlayer.isCastingMana = data.isCastingMana;
+        }
+        // Play mana sound when other players use mana (distance-based volume)
+        if (otherPlayer) {
+            const distance = Math.sqrt(
+                Math.pow(otherPlayer.x - gameState.player.x, 2) + 
+                Math.pow(otherPlayer.y - gameState.player.y, 2)
+            );
+            const maxDistance = 20; // Max distance for sound to be audible
+            const volume = Math.max(0, 0.5 * (1 - distance / maxDistance));
+            playManaSound(volume);
         }
     });
     
@@ -341,7 +376,8 @@ export function initNetwork(callbacks) {
             // Play sound effects for attacker
             if (data.damageDealt > 0) {
                 if (data.targetNewHealth <= 0) {
-                    // Kill sound
+                    // Kill success sound and random kill sound
+                    playKillSuccessSound();
                     playKillSound();
                 } else {
                     // Damage sound
@@ -361,6 +397,11 @@ export function initNetwork(callbacks) {
             } else if (data.damageDealt > 0) {
                 setPreviousHealth(oldHealth);
                 updateHealthBar();
+            }
+            
+            // Play injury sound when damaged by another player
+            if (data.damageDealt > 0) {
+                playInjurySound();
             }
             
             // Check if player died (health reached 0)

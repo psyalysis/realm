@@ -15,7 +15,7 @@ const MAX_HEALTH = 3;
 const RESPAWN_DELAY = 5.0; // Seconds before respawn
 
 // Map generation (shared seed for consistency)
-const FIXED_MAP_SEED = 12345; // Fixed seed for consistent map across all sessions
+const FIXED_MAP_SEED = 69420; // Fixed seed for consistent map across all sessions
 
 // Rate limiting
 const MOVE_RATE_LIMIT = 70; // Minimum milliseconds between moves (10 moves/sec max)

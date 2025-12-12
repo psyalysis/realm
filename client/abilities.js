@@ -6,6 +6,8 @@ import { gameState, performanceCache, setPreviousHealth, getPreviousHealth } fro
 import { DASH_COOLDOWN, DASH_DURATION, MANA_COOLDOWN, MANA_CAST_TIME, MAX_HEALTH, INPUT_MAP, WORLD_WIDTH, WORLD_HEIGHT } from './config.js';
 import { isWall } from './map.js';
 import { getCurrentTime } from './utils.js';
+import { playManaSound } from './sounds.js';
+import { playDashSound } from './sounds.js';
 
 // DOM elements (will be initialized)
 let dashCooldownFill, healthFill, manaFill, viewport, damageOverlay, gameNotRunningMessage;
@@ -180,6 +182,8 @@ export function handleMana() {
     gameState.manaCastEndTime = currentTime + MANA_CAST_TIME;
     gameState.movementQueue = [];
     gameState.manaCooldownEndTime = currentTime + MANA_COOLDOWN;
+    // Play mana sound in single-player mode
+    playManaSound();
 }
 
 // Check if mana cast is complete (called from animation loop)
@@ -313,5 +317,7 @@ function executeDash(direction) {
     gameState.dashEndTime = currentTime + (dashQueue.length * 0.15);
     gameState.dashCooldownEndTime = currentTime + DASH_COOLDOWN;
     gameState.isDashing = true;
+    // Play dash sound in single-player mode
+    playDashSound();
 }
 
